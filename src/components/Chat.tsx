@@ -25,6 +25,6 @@ export default function Chat() {
   };
 
   const sendChat = async () => {
-    const response = await fetch("/api/chat", { body: text });
+    const response = await fetch("/api/chat", { body: text  });
   };
 }
