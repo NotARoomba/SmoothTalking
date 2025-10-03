@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Phantom Sans';
+  src: url('/fonts/PhantomSans0.8-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Phantom Sans';
+  src: url('/fonts/PhantomSans0.8-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Phantom Sans';
+  src: url('/fonts/PhantomSans0.8-Semibold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --background: var(--color-almond);
+  --foreground: var(--color-almond);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: 'Phantom Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: var(--font-jacques-francois-shadow);
+  --color-black: #0a0908;
+  --color-black-100: #020202;
+  --color-black-200: #050404;
+  --color-black-300: #070605;
+  --color-black-400: #090807;
+  --color-black-500: #0a0908;
+  --color-black-600: #423b35;
+  --color-black-700: #786c60;
+  --color-black-800: #a89d92;
+  --color-black-900: #d3cec9;
+  --color-gunmetal: #22333b;
+  --color-gunmetal-100: #070a0c;
+  --color-gunmetal-200: #0d1417;
+  --color-gunmetal-300: #141e23;
+  --color-gunmetal-400: #1b282f;
+  --color-gunmetal-500: #22333b;
+  --color-gunmetal-600: #40606f;
+  --color-gunmetal-700: #608ea3;
+  --color-gunmetal-800: #95b4c2;
+  --color-gunmetal-900: #cad9e0;
+  --color-almond: #eae0d5;
+  --color-almond-100: #3c2d1e;
+  --color-almond-200: #775b3c;
+  --color-almond-300: #ae885f;
+  --color-almond-400: #ccb49b;
+  --color-almond-500: #eae0d5;
+  --color-almond-600: #efe7de;
+  --color-almond-700: #f3ede7;
+  --color-almond-800: #f7f3ef;
+  --color-almond-900: #fbf9f7;
+  --color-khaki: #c6ac8f;
+  --color-khaki-100: #2d2317;
+  --color-khaki-200: #5b462e;
+  --color-khaki-300: #886945;
+  --color-khaki-400: #b08b62;
+  --color-khaki-500: #c6ac8f;
+  --color-khaki-600: #d2bda5;
+  --color-khaki-700: #ddcebc;
+  --color-khaki-800: #e8ded2;
+  --color-khaki-900: #f4efe9;
+  --color-walnut_brown: #5e503f;
+  --color-walnut_brown-100: #13100d;
+  --color-walnut_brown-200: #262019;
+  --color-walnut_brown-300: #393026;
+  --color-walnut_brown-400: #4c4133;
+  --color-walnut_brown-500: #5e503f;
+  --color-walnut_brown-600: #89755b;
+  --color-walnut_brown-700: #ab9880;
+  --color-walnut_brown-800: #c7baab;
+  --color-walnut_brown-900: #e3ddd5;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: --color-almond;
+    --foreground: --color-almond;
+  }
+}
+
+body {
+  background: var(--color-almond);
+  color: var(--foreground);
+  font-family: 'Phantom Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
