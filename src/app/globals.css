@@ -99,3 +99,46 @@ body {
   color: var(--foreground);
   font-family: 'Phantom Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+
+/* Custom Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-almond);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-gunmetal);
+  border-radius: 4px;
+  border: 1px solid var(--color-gunmetal-200);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gunmetal-600);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--color-almond);
+}
+
+/* Custom scrollbar with gradient indicators */
+::-webkit-scrollbar-thumb:vertical {
+  background: linear-gradient(to bottom,
+    var(--color-gunmetal-200) 0%,
+    var(--color-gunmetal-200) 20%,
+    var(--color-gunmetal) 20%,
+    var(--color-gunmetal) 80%,
+    var(--color-gunmetal-200) 80%,
+    var(--color-gunmetal-200) 100%
+  );
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gunmetal) var(--color-almond);
+}
