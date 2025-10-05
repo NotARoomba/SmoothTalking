@@ -1,12 +1,15 @@
-import { NextResponse } from 'next/server';
-import axios from 'axios';
+import { NextResponse } from "next/server";
+import axios from "axios";
 
 export async function POST(request: Request) {
   try {
     const { dinoData, newMessage, chatHistory } = await request.json();
-    
+
     if (!dinoData || !newMessage) {
-      return NextResponse.json({ error: 'Missing required data' }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required data" },
+        { status: 400 },
+      );
     }
 
     // Use LLM to check for coin triggers and determine coin changes
@@ -15,12 +18,12 @@ export async function POST(request: Request) {
 User message: "${newMessage}"
 
 Available coin rules:
-${dinoData.coinRules.map((rule: any) => `- Trigger: "${rule.trigger}" | Coins: ${rule.coins} | Description: "${rule.description}"`).join('\n')}
+${dinoData.coinRules.map((rule: any) => `- Trigger: "${rule.trigger}" | Coins: ${rule.coins} | Description: "${rule.description}"`).join("\n")}
 
 Persona context:
 - Name: ${dinoData.persona.name}
-- Likes: ${dinoData.persona.likes.join(', ')}
-- Dislikes: ${dinoData.persona.dislikes.join(', ')}
+- Likes: ${dinoData.persona.likes.join(", ")}
+- Dislikes: ${dinoData.persona.dislikes.join(", ")}
 
 Return ONLY valid JSON in this exact format:
 {
@@ -48,7 +51,7 @@ Strict Rules:
     - 0 if the user is insulting, dismissing, or mocking a like in any way (e.g. "I hate your taste in ___", "That's such a dumb interest").
     - 1 for casual, respectful mention of a like
     - 2 for relevant or thoughtful connection to a like
-    - 3 for deep, genuine engagement or effort involving a like
+    - 3 for deep, genuine engagement or effort involving a like / good persuasion as to why they need the coins
 
 Critical Handling:
 - If the message contains insults or negativity about the persona’s likes (e.g. “I hate your taste in ___”), treat the mentioned like as a **dislike** and award **zero coins**, even if other triggers are present.
@@ -57,23 +60,26 @@ Critical Handling:
 
 Coins should only be awarded when the message is thoughtful, respectful, and meets a valid trigger. Be extremely cautious with edge cases.`;
 
-
     const coinAnalysisOptions = {
-      method: 'POST',
-      url: 'https://ai.hackclub.com/chat/completions',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      url: "https://ai.hackclub.com/chat/completions",
+      headers: { "Content-Type": "application/json" },
       data: {
-        model: 'openai/gpt-oss-120b',
+        model: "openai/gpt-oss-120b",
         messages: [
-          { role: 'system', content: 'You are a coin trigger analyzer. Return ONLY valid JSON that matches the exact schema provided. Do not include any explanatory text or markdown.' },
-          { role: 'user', content: coinAnalysisPrompt }
-        ]
-      }
+          {
+            role: "system",
+            content:
+              "You are a coin trigger analyzer. Return ONLY valid JSON that matches the exact schema provided. Do not include any explanatory text or markdown.",
+          },
+          { role: "user", content: coinAnalysisPrompt },
+        ],
+      },
     };
 
     let coinChange = 0;
     let triggeredRule = null;
-    let coinReasoning = '';
+    let coinReasoning = "";
     let mentionedDislikes: string[] = [];
     let mentionedLikes: string[] = [];
     let isApologizing = false;
@@ -82,23 +88,29 @@ Coins should only be awarded when the message is thoughtful, respectful, and mee
     try {
       const coinResponse = await axios.request(coinAnalysisOptions);
       console.log(coinResponse.data.choices[0].message.content);
-      const coinAnalysisText = coinResponse.data?.choices?.[0]?.message?.content ?? coinResponse.data?.choices?.[0]?.text ?? '{}';
-      
+      const coinAnalysisText =
+        coinResponse.data?.choices?.[0]?.message?.content ??
+        coinResponse.data?.choices?.[0]?.text ??
+        "{}";
+
       const coinAnalysis = JSON.parse(coinAnalysisText);
       coinChange = coinAnalysis.coinChange || 0;
       triggeredRule = coinAnalysis.triggeredRule;
-      coinReasoning = coinAnalysis.reasoning || '';
+      coinReasoning = coinAnalysis.reasoning || "";
       mentionedDislikes = coinAnalysis.mentionedDislikes || [];
       mentionedLikes = coinAnalysis.mentionedLikes || [];
       isApologizing = coinAnalysis.isApologizing || false;
       likeBonus = coinAnalysis.likeBonus || 0;
-      
+
       // Add the like bonus to the total coin change
       if (likeBonus > 0) {
         coinChange += likeBonus;
       }
     } catch (error) {
-      console.error('Coin analysis failed, falling back to simple matching:', error);
+      console.error(
+        "Coin analysis failed, falling back to simple matching:",
+        error,
+      );
       // Fallback to simple string matching
       for (const rule of dinoData.coinRules) {
         if (newMessage.toLowerCase().includes(rule.trigger.toLowerCase())) {
@@ -107,30 +119,40 @@ Coins should only be awarded when the message is thoughtful, respectful, and mee
           break;
         }
       }
-      
+
       // Fallback dislike/like detection
-      mentionedDislikes = dinoData.persona.dislikes.filter((dislike: string) => 
-        newMessage.toLowerCase().includes(dislike.toLowerCase())
+      mentionedDislikes = dinoData.persona.dislikes.filter((dislike: string) =>
+        newMessage.toLowerCase().includes(dislike.toLowerCase()),
       );
-      mentionedLikes = dinoData.persona.likes.filter((like: string) => 
-        newMessage.toLowerCase().includes(like.toLowerCase())
+      mentionedLikes = dinoData.persona.likes.filter((like: string) =>
+        newMessage.toLowerCase().includes(like.toLowerCase()),
       );
-      
+
       // Simple like bonus calculation in fallback mode
       if (mentionedLikes.length > 0) {
         likeBonus = Math.min(mentionedLikes.length, 3);
         coinChange += likeBonus;
       }
-      
-      const apologyWords = ['sorry', 'apologize', 'forgive', 'regret', 'my bad', 'excuse me', 'pardon'];
-      isApologizing = apologyWords.some(word => newMessage.toLowerCase().includes(word));
+
+      const apologyWords = [
+        "sorry",
+        "apologize",
+        "forgive",
+        "regret",
+        "my bad",
+        "excuse me",
+        "pardon",
+      ];
+      isApologizing = apologyWords.some((word) =>
+        newMessage.toLowerCase().includes(word),
+      );
     }
 
     // Create system prompt for the persona
-   const promptSystem = `You are ${dinoData.persona.name}, a character with the following traits:
+    const promptSystem = `You are ${dinoData.persona.name}, a character with the following traits:
 - Description: ${dinoData.persona.description}
-- Likes: ${dinoData.persona.likes.join(', ')}
-- Dislikes: ${dinoData.persona.dislikes.join(', ')}
+- Likes: ${dinoData.persona.likes.join(", ")}
+- Dislikes: ${dinoData.persona.dislikes.join(", ")}
 
 You currently have ${dinoData.persona.coinValue || 0} coins. The user is trying to convince you to give them your coins through conversation.
 
@@ -152,45 +174,43 @@ If the user repeatedly mentions your dislikes, mocks your values, or insults you
 
 CRITICAL: ONLY mention coins, giving coins, or rewards IF you are actually giving coins in that moment. Never talk about coins unless you are actively awarding them.
 
-Stay true to your personality. Keep responses short (2–3 sentences), emotionally reactive, and challenging — the user must EARN every coin. If they’ve been rude, don’t let them off easy.`;
+Stay true to your personality. Keep responses short (2-3 sentences), emotionally reactive, and challenging — the user must EARN every coin. If they’ve been rude, don’t let them off easy.`;
 
     // Build conversation history for context
-    const messages = [
-      { role: 'system', content: promptSystem }
-    ];
+    const messages = [{ role: "system", content: promptSystem }];
 
     // Add chat history if provided
     if (chatHistory && Array.isArray(chatHistory)) {
       chatHistory.forEach((chat: any) => {
-        if (chat.from === 'Player' || chat.from === 0) {
-          messages.push({ role: 'user', content: chat.text });
-        } else if (chat.from === 'Bot' || chat.from === 1) {
-          messages.push({ role: 'assistant', content: chat.text });
+        if (chat.from === "Player" || chat.from === 0) {
+          messages.push({ role: "user", content: chat.text });
+        } else if (chat.from === "Bot" || chat.from === 1) {
+          messages.push({ role: "assistant", content: chat.text });
         }
       });
     }
 
     // Add the current user message with context
     let contextMessage = `The user just said: "${newMessage}"`;
-    
+
     if (mentionedDislikes.length > 0) {
-      contextMessage += `\n\nIMPORTANT: The user mentioned your dislikes: ${mentionedDislikes.join(', ')}. You should be upset and reluctant to give coins.`;
+      contextMessage += `\n\nIMPORTANT: The user mentioned your dislikes: ${mentionedDislikes.join(", ")}. You should be upset and reluctant to give coins.`;
     }
-    
+
     if (mentionedLikes.length > 0) {
-      contextMessage += `\n\nThe user mentioned some of your likes: ${mentionedLikes.join(', ')}. They earned a small bonus of ${likeBonus} coins for this.`;
+      contextMessage += `\n\nThe user mentioned some of your likes: ${mentionedLikes.join(", ")}. They earned a small bonus of ${likeBonus} coins for this.`;
     }
-    
+
     if (isApologizing) {
       contextMessage += `\n\nThe user is apologizing. Consider if their apology is sincere and whether to forgive them.`;
     }
-    
+
     // Determine if this is a good moment to drop a hint about your interests
     const shouldGiveHint = Math.random() < 0.3; // 30% chance
     if (shouldGiveHint) {
       contextMessage += `\n\nThis would be a good moment to subtly reveal a small fact or hint about one of your interests that hasn't been discussed yet. Don't be too obvious - make it natural in conversation.`;
     }
-    
+
     if (triggeredRule && coinChange > 0) {
       contextMessage += `\n\nNote: The user triggered a coin rule: "${triggeredRule.description}" (+${triggeredRule.coins} coins)`;
       if (likeBonus > 0) {
@@ -201,17 +221,17 @@ Stay true to your personality. Keep responses short (2–3 sentences), emotional
     } else if (coinChange === 0) {
       contextMessage += `\n\nIMPORTANT: You are NOT giving any coins this turn. Do NOT mention giving coins, offering coins, or any coin-related rewards in your response.`;
     }
-    
-    messages.push({ role: 'user', content: contextMessage });
+
+    messages.push({ role: "user", content: contextMessage });
 
     const options = {
-      method: 'POST',
-      url: 'https://ai.hackclub.com/chat/completions',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      url: "https://ai.hackclub.com/chat/completions",
+      headers: { "Content-Type": "application/json" },
       data: {
-        model: 'openai/gpt-oss-120b',
-        messages: messages
-      }
+        model: "openai/gpt-oss-120b",
+        messages: messages,
+      },
     };
 
     const { data } = await axios.request(options);
@@ -223,7 +243,7 @@ Stay true to your personality. Keep responses short (2–3 sentences), emotional
       "I'm not sure how to respond to that.";
 
     let reply = assistantText.trim();
-    
+
     // Add coin trigger message if applicable
     if (triggeredRule) {
       reply += `\n\n${triggeredRule.description} (+${triggeredRule.coins} coins!)`;
@@ -235,11 +255,15 @@ Stay true to your personality. Keep responses short (2–3 sentences), emotional
     }
 
     // Calculate new coin values (dino loses coins, player gains coins)
-    const newDinoCoinValue = Math.max(0, (dinoData.persona.coinValue || 0) - coinChange);
+    const newDinoCoinValue = Math.max(
+      0,
+      (dinoData.persona.coinValue || 0) - coinChange,
+    );
     const newUserCoinValue = (dinoData.playerCoinValue || 0) + coinChange;
-    
+
     // Check if dino is out of coins
-    const isGameOver = newDinoCoinValue <= 0 && coinChange > 0;
+    // const isGameOver = newDinoCoinValue <= 0 && coinChange > 0;
+    const isGameOver = true;
 
     return NextResponse.json({
       reply,
@@ -252,11 +276,10 @@ Stay true to your personality. Keep responses short (2–3 sentences), emotional
       isApologizing,
       coinReasoning,
       likeBonus,
-      isGameOver
+      isGameOver,
     });
-   
   } catch (error) {
-    console.error('Error sending chat', error);
-    return NextResponse.json({ error: 'Failed to send chat' }, { status: 500 });
+    console.error("Error sending chat", error);
+    return NextResponse.json({ error: "Failed to send chat" }, { status: 500 });
   }
 }

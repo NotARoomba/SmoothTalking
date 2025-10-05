@@ -543,6 +543,15 @@ export default function Play() {
               Exit to Home
             </button>
           </div>
+          {/* Login/Signup button */}
+          <div className="flex gap-4">
+            <button
+              onClick={() => (window.location.href = "/auth")}
+              className="bg-gunmetal hover:bg-gunmetal/80 text-white px-6 py-3 rounded-lg font-medium cursor-pointer transition-colors duration-200"
+            >
+              Login / Sign Up to Save Progress
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

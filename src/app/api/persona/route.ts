@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server';
-import axios from 'axios';
+import { NextResponse } from "next/server";
+import axios from "axios";
 export async function POST(request: Request) {
   // accept an optional imageUrl in the POST body
   const body = await request.json().catch(() => ({}));
@@ -30,7 +30,7 @@ ${schemaDescription}`;
 
 PERSONA DIVERSITY REQUIREMENTS:
 - Age range: Teenager (13-19) to Elderly (65+)
-- Backgrounds: Street kid, student, artist, chef, mechanic, teacher, retiree, gamer, musician, athlete, shopkeeper, farmer, etc.
+- Backgrounds: Street kid, student, artist, chef, teacher, retiree, gamer, musician, athlete, shopkeeper, farmer, etc.
 - Personality: Shy, outgoing, grumpy, cheerful, mysterious, talkative, quiet, adventurous, cautious, etc.
 - Interests: Technology, sports, cooking, music, art, books, movies, games, nature, fashion, etc.
 
@@ -41,16 +41,16 @@ AVOID: Librarians, academics, or book-focused professions. Make it random and di
 `;
 
   const options = {
-    method: 'POST',
-    url: 'https://ai.hackclub.com/chat/completions',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    url: "https://ai.hackclub.com/chat/completions",
+    headers: { "Content-Type": "application/json" },
     data: {
-      model: 'openai/gpt-oss-120b',
+      model: "openai/gpt-oss-120b",
       messages: [
-        { role: 'system', content: promptSystem },
-        { role: 'user', content: promptUser }
-      ]
-    }
+        { role: "system", content: promptSystem },
+        { role: "user", content: promptUser },
+      ],
+    },
   };
 
   try {
@@ -70,11 +70,11 @@ AVOID: Librarians, academics, or book-focused professions. Make it random and di
       return NextResponse.json(
         {
           success: false,
-          error: 'Model did not return valid JSON',
+          error: "Model did not return valid JSON",
           assistantText,
-          raw: data
+          raw: data,
         },
-        { status: 502 }
+        { status: 502 },
       );
     }
 
@@ -86,11 +86,13 @@ AVOID: Librarians, academics, or book-focused professions. Make it random and di
     // get the total coinvalue from the coinRules
     const totalCoinValue = personaJson?.coinRules?.reduce(
       (sum: number, rule: { coins: number }) => sum + (rule.coins || 0),
-      0
+      0,
     );
     if (personaJson?.persona) {
       personaJson.persona.coinValue = totalCoinValue;
     }
+
+    console.log(personaJson.persona);
 
     // Return the structured JSON schema to the client
     return NextResponse.json(
@@ -99,12 +101,12 @@ AVOID: Librarians, academics, or book-focused professions. Make it random and di
         persona: personaJson.persona,
         initialMessage: personaJson.initialMessage,
         coinRules: personaJson.coinRules,
-        raw: data
+        raw: data,
       },
-      { status: 200 }
+      { status: 200 },
     );
   } catch (error) {
-    console.error('Error sending chat', error);
-    return NextResponse.json({ error: 'Failed to send chat' }, { status: 500 });
+    console.error("Error sending chat", error);
+    return NextResponse.json({ error: "Failed to send chat" }, { status: 500 });
   }
 }

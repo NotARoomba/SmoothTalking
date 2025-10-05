@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server';
-import { Octokit } from '@octokit/rest';
+import { NextResponse } from "next/server";
+import { Octokit } from "@octokit/rest";
 
 export async function GET() {
   try {
@@ -12,7 +12,10 @@ export async function GET() {
 
     return NextResponse.json(response.data);
   } catch (error) {
-    console.error('Error fetching dinosaur images:', error);
-    return NextResponse.json({ error: 'Failed to fetch images' }, { status: 500 });
+    console.error("Error fetching dinosaur images:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch images" },
+      { status: 500 },
+    );
   }
 }
