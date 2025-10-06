@@ -1,36 +1,112 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<h1 align="center">
+  <br>
+  <a href="https://notaroomba.dev"><img src="./public/logo.png" alt="Smooth Talking" width="200"></a>
+  <br>
+  Smooth Talking
+  <br>
+</h1>
+
+<h4 align="center">
+An AI-Powered Dinosaur Debate Game
+
+</h4>
+
+<div align="center">
+
+![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
+
+</div>
+
+<p align="center">
+  <a href="#key-features">Key Features</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#screenshots">Screenshots</a> •
+  <a href="#credits">Credits</a>
+</p>
+
+## Key Features
+
+- **AI-Powered Conversations**: Chat with unique dinosaur personalities
+- **Coin System**: Earn coins through strategic conversations
+- **User Authentication**: Secure accounts with profile customization
+- **Game Sessions**: Save and resume your games
+- **Leaderboards**: Compete with other players
+- **Responsive Design**: Works on desktop and mobile
+
+Debate with AI dinosaurs to earn coins. Each dinosaur has unique personalities, likes, and dislikes. Earn coins by triggering conversation rules while avoiding topics that might end the game!
+
+Built with Next.js, TypeScript, MongoDB, and OpenAI API.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+ or Bun
+- MongoDB database
+- Gmail account for email service
+
+### Installation
+
+1. Clone the repository:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/NotARoomba/SmoothTalking.git
+cd SmoothTalking
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+bun install
+# or
+npm install
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Set up environment variables:
+   Create a `.env.local` file in the root directory:
 
-## Learn More
+```env
+MONGODB_URI=your_mongodb_connection_string
+EMAIL_USER=your_email@gmail.com
+EMAIL_PASS=your_app_password
+NEXTAUTH_URL=http://localhost:3000
+```
 
-To learn more about Next.js, take a look at the following resources:
+4. Run the development server:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+bun dev
+# or
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+5. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-## Deploy on Vercel
+## Screenshots
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Game Interface
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+<img src="./public/screenshot.png" alt="Smooth Talking Gameplay" width="800"/>
+
+## Credits
+
+Built with Next.js, MongoDB, OpenAI, and Tailwind CSS.
+
+## You may also like...
+
+- [Athena](https://github.com/NotARoomba/Athena) – Advanced Flight Computer with Triple MCU Architecture
+- [Niveles De Niveles](https://github.com/NotARoomba/NivelesDeNiveles) – Real-time flood alert app
+- [Linea](https://github.com/NotARoomba/Linea) – An EMR tablet
+- [Tamaki](https://github.com/NotARoomba/Tamaki) – A cute HackPad
+
+## License
+
+MIT
+
+---
+
+> [notaroomba.dev](https://notaroomba.dev) &nbsp;&middot;&nbsp;
+> GitHub [@NotARoomba](https://github.com/NotARoomba)
