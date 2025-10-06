@@ -100,7 +100,7 @@ AVOID: Librarians, academics, or book-focused professions. Make it random and di
 export async function POST(request: Request) {
   let client_connection = null;
   try {
-    const { message, dinosaur, gameId, chatHistory, imageUrl, isNewGame } = await request.json();
+    const { message, dinoData: clientDinoData, gameId, chatHistory, imageUrl, isNewGame } = await request.json();
     
     // Check for authentication
     const authToken = (await cookies()).get("authToken")?.value;
@@ -128,11 +128,12 @@ export async function POST(request: Request) {
       if (!dinoData) {
         return NextResponse.json({ error: "Failed to generate persona" }, { status: 500 });
       }
-    } else if (dinosaur) {
-      // For existing games, we'll load from game session or need persona data passed
-      // This will be handled in the game session loading below
+    } else if (clientDinoData) {
+      // For existing games, use dinoData passed from client (for unauthenticated users)
+      // or load from game session (for authenticated users)
+      dinoData = clientDinoData;
     } else {
-      return NextResponse.json({ error: "Missing persona data or dinosaur identifier" }, { status: 400 });
+      return NextResponse.json({ error: "Missing persona data" }, { status: 400 });
     }
     
     // Initialize game ID variables

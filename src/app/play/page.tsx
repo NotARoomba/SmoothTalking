@@ -69,7 +69,6 @@ Modal.setAppElement("#root");
 export default function Play() {
   const [dinoData, setDinoData] = useState<DinoSchema | null>(null);
   const [playerData, setDinoPlayer] = useState<Player | null>(null);
-  const [selectedDinosaur, setSelectedDinosaur] = useState<string | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -150,7 +149,6 @@ export default function Play() {
       };
 
       setDinoData(adjustedDinoData);
-      setSelectedDinosaur(parsedDinoData.persona.name);
 
       if (localChats) {
         const parsedChats = JSON.parse(localChats);
@@ -240,7 +238,6 @@ export default function Play() {
       };
 
       setDinoData(dinoDataWithEarnedRules);
-      setSelectedDinosaur(gameSession.dinosaur);
 
       // Set up player data - get current user data for coins and avatar
       const userResponse = await fetch("/api/user", {
@@ -382,7 +379,6 @@ export default function Play() {
             }
 
             const personaData = personaResponseData.dinoData;
-            setSelectedDinosaur(personaData.persona.name);
             console.log(personaResponseData);
             setGameId(personaResponseData.gameId);
 
@@ -476,7 +472,7 @@ export default function Play() {
   };
 
   const sendChat = async () => {
-    if (!text.trim() || !selectedDinosaur) return;
+    if (!text.trim() || !dinoData) return;
 
     const messageText = text.trim();
     const newChat: ChatItem = {
@@ -504,7 +500,7 @@ export default function Play() {
         },
         body: JSON.stringify({
           message: messageText,
-          dinosaur: selectedDinosaur,
+          dinoData: dinoData,
           gameId: gameId,
           chatHistory: apiChatHistory,
         }),
@@ -874,13 +870,19 @@ export default function Play() {
               Exit to Home
             </button>
           </div>
-          {/* Login/Signup button */}
+          {/* Login/Signup or Leaderboard button */}
           <div className="flex gap-4">
             <button
-              onClick={() => (window.location.href = "/auth")}
+              onClick={() =>
+                (window.location.href = isAuthenticated
+                  ? "/leaderboard"
+                  : "/auth")
+              }
               className="bg-gunmetal hover:bg-gunmetal/80 text-white px-6 py-3 rounded-lg font-medium cursor-pointer transition-colors duration-200"
             >
-              Login / Sign Up to Save Progress
+              {isAuthenticated
+                ? "View Leaderboard"
+                : "Login / Sign Up to Save Progress"}
             </button>
           </div>
         </div>
