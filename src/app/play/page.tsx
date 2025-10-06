@@ -43,10 +43,14 @@ interface DinoSchema {
   };
   initialMessage: { role: "assistant"; content: string };
   coinRules: {
-    id: string;
     trigger: string;
     coins: number;
     description: string;
+  }[];
+  earnedRules?: {
+    trigger: string;
+    coins: number;
+    earnedAt: Date;
   }[];
 }
 
@@ -65,6 +69,9 @@ Modal.setAppElement("#root");
 export default function Play() {
   const [dinoData, setDinoData] = useState<DinoSchema | null>(null);
   const [playerData, setDinoPlayer] = useState<Player | null>(null);
+  const [selectedDinosaur, setSelectedDinosaur] = useState<string | null>(null);
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [notesVisible, setNotesVisible] = useState(false);
   const [text, setText] = useState<string>("");
@@ -91,17 +98,263 @@ export default function Play() {
     scrollToBottom();
   }, [chats]);
 
+  // Check authentication status
+  const checkAuthStatus = async () => {
+    try {
+      const response = await fetch("/api/user", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (response.ok) {
+        const userData = await response.json();
+        setIsAuthenticated(true);
+        return userData.user;
+      } else {
+        setIsAuthenticated(false);
+        return null;
+      }
+    } catch (error) {
+      setIsAuthenticated(false);
+      return null;
+    }
+  };
+
+  // Load game data from localStorage for non-authenticated users
+  const loadLocalGameData = () => {
+    const localGameId = localStorage.getItem("currentGameId");
+    const localDinoData = localStorage.getItem("dinoData");
+    const localChats = localStorage.getItem("chatHistory");
+    const localPlayerData = localStorage.getItem("playerData");
+
+    if (localGameId && localDinoData) {
+      setGameId(localGameId);
+
+      const parsedDinoData = JSON.parse(localDinoData);
+      const earnedRules = parsedDinoData.earnedRules || [];
+
+      // Calculate total coins earned to subtract from bot's coin value
+      const totalCoinsEarned = earnedRules.reduce(
+        (sum: number, rule: any) => sum + (rule.coins || 0),
+        0
+      );
+
+      const adjustedDinoData = {
+        ...parsedDinoData,
+        persona: {
+          ...parsedDinoData.persona,
+          coinValue: Math.max(
+            0,
+            (parsedDinoData.persona.coinValue || 0) - totalCoinsEarned
+          ),
+        },
+      };
+
+      setDinoData(adjustedDinoData);
+      setSelectedDinosaur(parsedDinoData.persona.name);
+
+      if (localChats) {
+        const parsedChats = JSON.parse(localChats);
+        setChats(
+          parsedChats.map((chat: any) => ({
+            ...chat,
+            timestamp: new Date(chat.timestamp),
+          }))
+        );
+      }
+
+      if (localPlayerData) {
+        const parsedPlayerData = JSON.parse(localPlayerData);
+
+        // If user is authenticated, fetch their current avatar and coins
+        if (isAuthenticated) {
+          fetch("/api/user", {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+          })
+            .then((response) => response.json())
+            .then((userData) => {
+              if (userData.user && userData.user.avatar) {
+                setDinoPlayer({
+                  imageUrl: userData.user.avatar,
+                  coinValue: userData.user.coins || 0,
+                });
+              } else {
+                setDinoPlayer(parsedPlayerData);
+              }
+            })
+            .catch(() => {
+              setDinoPlayer(parsedPlayerData);
+            });
+        } else {
+          setDinoPlayer(parsedPlayerData);
+        }
+      }
+
+      return true;
+    }
+    return false;
+  };
+
+  // Save game data to localStorage for non-authenticated users
+  const saveLocalGameData = (gameData: any, playerData: any, chatData: any) => {
+    if (!isAuthenticated) {
+      localStorage.setItem("currentGameId", gameData.gameId || "");
+      localStorage.setItem("dinoData", JSON.stringify(gameData));
+      localStorage.setItem("chatHistory", JSON.stringify(chatData));
+      localStorage.setItem("playerData", JSON.stringify(playerData));
+    }
+  };
+
+  // Clear local game data
+  const clearLocalGameData = () => {
+    localStorage.removeItem("currentGameId");
+    localStorage.removeItem("dinoData");
+    localStorage.removeItem("chatHistory");
+    localStorage.removeItem("playerData");
+  };
+
+  // Helper function to load a game session
+  const loadGameSession = async (gameSession: any) => {
+    try {
+      setGameId(gameSession.gameId);
+
+      // Make sure earnedRules is properly restored to prevent duplicate coin earning
+      const earnedRules = gameSession.dinoData.earnedRules || [];
+
+      // Calculate total coins earned in this game to subtract from bot's coin value
+      const totalCoinsEarned = earnedRules.reduce(
+        (sum: number, rule: any) => sum + (rule.coins || 0),
+        0
+      );
+
+      const dinoDataWithEarnedRules = {
+        ...gameSession.dinoData,
+        earnedRules,
+        persona: {
+          ...gameSession.dinoData.persona,
+          coinValue: Math.max(
+            0,
+            (gameSession.dinoData.persona.coinValue || 0) - totalCoinsEarned
+          ),
+        },
+      };
+
+      setDinoData(dinoDataWithEarnedRules);
+      setSelectedDinosaur(gameSession.dinosaur);
+
+      // Set up player data - get current user data for coins and avatar
+      const userResponse = await fetch("/api/user", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        setDinoPlayer({
+          imageUrl: userData.user.avatar,
+          coinValue: userData.user.coins || 0,
+        });
+      } else {
+        // Fallback for guest users or if user fetch fails
+        setDinoPlayer({
+          imageUrl: gameSession.dinoData.persona.imageUrl,
+          coinValue: 0,
+        });
+      }
+
+      // Convert chat history timestamps and reconstruct full conversation
+      const convertedChats: ChatItem[] = [];
+
+      // Add initial bot message
+      convertedChats.push({
+        from: Sender.Bot,
+        text: gameSession.dinoData.initialMessage.content,
+        timestamp: new Date(gameSession.createdAt),
+      });
+
+      // Add chat history if exists
+      if (gameSession.chatHistory && gameSession.chatHistory.length > 0) {
+        gameSession.chatHistory.forEach((chat: any) => {
+          if (chat.type === "user") {
+            convertedChats.push({
+              from: Sender.Player,
+              text: chat.message,
+              timestamp: new Date(chat.timestamp),
+            });
+          } else if (chat.type === "bot") {
+            convertedChats.push({
+              from: Sender.Bot,
+              text: chat.message,
+              timestamp: new Date(chat.timestamp),
+            });
+          }
+        });
+      }
+
+      setChats(convertedChats);
+      console.log(
+        `Loaded existing game: ${gameSession.gameId} with ${gameSession.dinoData.persona.name}`
+      );
+      return true;
+    } catch (error) {
+      console.error("Failed to load game session:", error);
+      return false;
+    }
+  };
+
+  // Find and load the first active game for authenticated users
+  const loadFirstActiveGame = async () => {
+    try {
+      const response = await fetch("/api/games");
+      if (response.ok) {
+        const data = await response.json();
+        const activeGame = data.gameSessions.find((g: any) => g.isActive);
+
+        if (activeGame) {
+          return await loadGameSession(activeGame);
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to load first active game:", error);
+      return false;
+    }
+  };
+
   useEffect(() => {
-    // Fetch the dinosaur images
-    const fetchDinoImages = async () => {
+    // Initialize game
+    const initializeGame = async () => {
       try {
+        // Check authentication status
+        const user = await checkAuthStatus();
+
+        // For authenticated users, try to load first active game
+        if (user) {
+          const loadedActiveGame = await loadFirstActiveGame();
+          if (loadedActiveGame) {
+            setTimeout(() => {
+              setIsVisible(true);
+            }, 100);
+            return;
+          }
+        } else {
+          // Try to load existing game for non-authenticated users
+          if (loadLocalGameData()) {
+            setTimeout(() => {
+              setIsVisible(true);
+            }, 100);
+            return;
+          }
+        }
+
+        // Fetch dinosaur images for new game
         const response = await fetch("/api/dinosaurs");
         const data = await response.json();
         if (Array.isArray(data)) {
           const imageUrls = data
             .filter((item: any) => item.download_url)
             .map((item: any) => item.download_url);
-          // Set initial images
+
           if (imageUrls.length > 0) {
             const randomIndex1 = Math.floor(Math.random() * imageUrls.length);
             let randomIndex2 = Math.floor(Math.random() * imageUrls.length);
@@ -111,26 +364,60 @@ export default function Play() {
               randomIndex2 = Math.floor(Math.random() * imageUrls.length);
             }
 
-            const response = await fetch("/api/persona", {
+            // Generate persona using the chat route
+            const personaResponse = await fetch("/api/chat", {
               method: "POST",
-              body: JSON.stringify({ imageUrl: imageUrls[randomIndex1] }),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                imageUrl: imageUrls[randomIndex1],
+                isNewGame: true,
+                message: "Hello!", // Initial message to trigger persona generation
+              }),
             });
-            const personaData = await response.json();
-            console.log(personaData);
+            const personaResponseData = await personaResponse.json();
+
+            if (!personaResponseData.dinoData) {
+              console.error("Failed to generate persona");
+              return;
+            }
+
+            const personaData = personaResponseData.dinoData;
+            setSelectedDinosaur(personaData.persona.name);
+            console.log(personaResponseData);
+            setGameId(personaResponseData.gameId);
+
+            // Set up player data - use user avatar if logged in and has avatar, otherwise use random dino
+            const playerData = {
+              imageUrl:
+                user && user.avatar ? user.avatar : imageUrls[randomIndex2],
+              coinValue: user?.coins || 0,
+            };
+            setDinoPlayer(playerData);
+
             setDinoData(personaData);
-            setChats([
+            const initialChats = [
               {
-                from: Sender.Bot,
-                text: personaData.initialMessage.content,
+                from: Sender.Player,
+                text: "Hello!",
                 timestamp: new Date(),
               },
-            ]);
-            setDinoPlayer({
-              imageUrl: imageUrls[randomIndex2],
-              coinValue: 0,
-            });
+              {
+                from: Sender.Bot,
+                text: personaResponseData.response,
+                timestamp: new Date(),
+              },
+            ];
+            setChats(initialChats);
 
-            // Fade in after a short delay
+            // Save initial game state for non-authenticated users
+            if (!user) {
+              const initialGameId = `local_game_${Date.now()}_${Math.random()
+                .toString(36)
+                .substr(2, 9)}`;
+              setGameId(initialGameId);
+              saveLocalGameData(personaData, playerData, initialChats);
+            }
+
             setTimeout(() => {
               setIsVisible(true);
             }, 100);
@@ -139,11 +426,11 @@ export default function Play() {
           console.error("No dinosaur images found");
         }
       } catch (error) {
-        console.error("Failed to fetch dinosaur images:", error);
+        console.error("Failed to initialize game:", error);
       }
     };
 
-    fetchDinoImages();
+    initializeGame();
   }, []);
 
   const addNote = () => {
@@ -180,6 +467,7 @@ export default function Play() {
   };
 
   const handleRestart = () => {
+    clearLocalGameData();
     window.location.reload();
   };
 
@@ -188,7 +476,7 @@ export default function Play() {
   };
 
   const sendChat = async () => {
-    if (!text.trim() || !dinoData) return;
+    if (!text.trim() || !selectedDinosaur) return;
 
     const messageText = text.trim();
     const newChat: ChatItem = {
@@ -196,61 +484,102 @@ export default function Play() {
       text: messageText,
       timestamp: new Date(),
     };
-    setChats((prevChats) => [...prevChats, newChat]);
+    const updatedChats = [...chats, newChat];
+    setChats(updatedChats);
     setText("");
 
     try {
+      console.log("gameId:", gameId);
+      // Convert chats to API format (exclude initial greeting for chat history)
+      const apiChatHistory = chats.slice(1).map((chat) => ({
+        type: chat.from === Sender.Player ? "user" : "bot",
+        message: chat.text,
+        timestamp: chat.timestamp,
+      }));
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          dinoData: {
-            ...dinoData,
-            playerCoinValue: playerData?.coinValue || 0,
-          },
-          newMessage: messageText,
-          chatHistory: chats,
+          message: messageText,
+          dinosaur: selectedDinosaur,
+          gameId: gameId,
+          chatHistory: apiChatHistory,
         }),
       });
 
       const data = await response.json();
       console.log(data);
 
-      if (data && data.reply) {
+      if (data && data.response) {
         const botChat: ChatItem = {
           from: Sender.Bot,
-          text: data.reply,
+          text: data.response,
           timestamp: new Date(),
         };
-        setChats((prevChats) => [...prevChats, botChat]);
+        const finalChats = [...updatedChats, botChat];
+        setChats(finalChats);
+
+        // Update game ID if provided
+        if (data.gameId && !gameId) {
+          setGameId(data.gameId);
+        }
+
+        // Update dino data if provided
+        if (data.dinoData) {
+          setDinoData(data.dinoData);
+        }
 
         // Update coin values if there was a change
-        if (data.coinChange !== undefined) {
-          // Update dino coins
-          if (data.newDinoCoinValue !== undefined) {
-            setDinoData((prevData) => ({
-              ...prevData!,
-              persona: {
-                ...prevData!.persona,
-                coinValue: data.newDinoCoinValue,
-              },
-            }));
+        let newPlayerCoins = playerData?.coinValue || 0;
+        let newDinoCoins = dinoData?.persona.coinValue || 0;
+
+        if (data.coinChange !== undefined && data.coinChange !== 0) {
+          newPlayerCoins =
+            (playerData?.coinValue || 0) + Math.abs(data.coinChange);
+          newDinoCoins = Math.max(
+            0,
+            (dinoData?.persona.coinValue || 0) - Math.abs(data.coinChange)
+          );
+
+          const updatedPlayerData = {
+            ...playerData!,
+            coinValue: newPlayerCoins,
+          };
+
+          setDinoPlayer(updatedPlayerData);
+
+          setDinoData((prevData) => ({
+            ...prevData!,
+            persona: {
+              ...prevData!.persona,
+              coinValue: newDinoCoins,
+            },
+          }));
+
+          // Save updated game state for non-authenticated users
+          if (!isAuthenticated) {
+            saveLocalGameData(
+              data.dinoData || dinoData,
+              updatedPlayerData,
+              finalChats
+            );
+          }
+        }
+
+        // Handle game over
+        if (data.gameOver || newDinoCoins <= 0) {
+          setGameOverVisible(true);
+
+          // Clear localStorage for non-authenticated users
+          if (data.shouldClearLocalStorage) {
+            clearLocalGameData();
           }
 
-          // Update player coins
-          if (data.newUserCoinValue !== undefined) {
-            setDinoPlayer((prevPlayer) => ({
-              ...prevPlayer!,
-              coinValue: data.newUserCoinValue,
-            }));
-          }
-
-          // Check for game over
-          if (data.isGameOver) {
-            setGameOverVisible(true);
-          }
+          // For authenticated users, coins are already updated on the backend
+          // For non-authenticated users, we don't need to update the database
         }
       }
     } catch (error) {
@@ -276,13 +605,15 @@ export default function Play() {
         )}
       </div>
       <div className="w-1/3 flex flex-col gap-1 items-end justify-center py-10">
-        <p
-          className={`font-mono text-gunmetal text-5xl pb-2 text-center mx-auto ${
-            notesVisible ? "opacity-0" : "opacity-100"
-          } transition-opacity duration-500`}
-        >
-          smooth talking
-        </p>
+        <Link href="/">
+          <p
+            className={`font-mono text-gunmetal text-5xl pb-2 text-center mx-auto cursor-pointer hover:opacity-80 transition-opacity ${
+              notesVisible ? "opacity-0" : "opacity-100"
+            }`}
+          >
+            smooth talking
+          </p>
+        </Link>
         <div
           className="mt-auto flex flex-col w-full max-h-[calc(100vh-200px)] overflow-y-auto pr-2"
           ref={chatContainerRef}
@@ -523,8 +854,8 @@ export default function Play() {
             Game Over!
           </h2>
           <p className="text-lg text-gunmetal">
-            You've successfully convinced {dinoData?.persona.name} to give you
-            all their coins!
+            The conversation has ended! {dinoData?.persona.name} is no longer
+            willing to talk.
           </p>
           <p className="text-sm text-gunmetal/70">
             Final Score: {playerData?.coinValue || 0} coins

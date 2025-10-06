@@ -16,7 +16,6 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   let userId = searchParams.get("id");
   const authToken = (await cookies()).get("authToken")?.value;
-  console.log("Fetching user with ID:", userId, "or Auth Token:", authToken);
   if (!userId && !authToken) {
     return NextResponse.json({ error: "User ID or Auth Token is required" }, { status: 400 });
   }
@@ -47,13 +46,11 @@ export async function GET(request: Request) {
       { error: "Internal Server Error" },
       { status: 500 },
     );
-  } finally {
-    await client.close();
   }
 }
 
 export async function POST(request: Request) {
-  const { id, avatar, username, email, password } = await request.json();
+  const { avatar, username, email, otp, newCoins, newCoinData } = await request.json();
   //check if authtoken cookie
     const authToken = (await cookies()).get("authToken")?.value;
   if (!authToken) {
@@ -63,12 +60,6 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!id || !password) {
-    return NextResponse.json(
-      { error: "User ID and password are required" },
-      { status: 400 },
-    );
-  }
   try {
     await client.connect();
     const db = client.db(dbName);
@@ -79,20 +70,10 @@ export async function POST(request: Request) {
     if (!tokenEntry) {
       return NextResponse.json({ error: "Invalid Auth Token" }, { status: 401 });
     }
-    if (tokenEntry.userId !== id) {
-      return NextResponse.json(
-        { error: "Auth Token does not match user ID" },
-        { status: 403 },
-      );
-    }
+    const id = tokenEntry.userId;
     const user = await users.findOne({ id });
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return NextResponse.json({ error: "Invalid password" }, { status: 401 });
     }
 
     if (username) {
@@ -117,12 +98,36 @@ export async function POST(request: Request) {
         );
       }
     }
+
+    if (email && !otp) {
+      return NextResponse.json(
+        { error: "OTP is required to change email" },
+        { status: 400 },
+      );
+    }
+
+    // If OTP is provided, verify it
+    if (email && otp) {
+      const otps = db.collection("otpTokens");
+      const otpEntry = await otps.findOne({ email: email, otp: parseInt(otp) });
+      if (!otpEntry) {
+        return NextResponse.json({ error: "Invalid OTP" }, { status: 401 });
+      }
+      const now = new Date();
+      if (otpEntry.expiresAt < now) {
+        return NextResponse.json({ error: "OTP has expired" }, { status: 401 });
+      }
+      // OTP is valid, delete it after verification
+      await otps.deleteOne({ email: email, otp: parseInt(otp) });
+    }
     const updatedUser: any = {};
     if (avatar) updatedUser.avatar = avatar;
     if (username) updatedUser.username = username;
     if (email) updatedUser.email = email;
 
-    await users.updateOne({ id }, { $set: updatedUser });
+    await users.updateOne({ id }, { $set: updatedUser, $inc: { coins: newCoins || 0 } });
+    if (newCoinData) await users.updateOne({ id }, { $push: { coinData: newCoinData  } });
+    
     return NextResponse.json(
       { message: "User updated successfully" },
       { status: 200 },
@@ -133,7 +138,5 @@ export async function POST(request: Request) {
       { error: "Internal Server Error" },
       { status: 500 },
     );
-  } finally {
-    await client.close();
   }
 }

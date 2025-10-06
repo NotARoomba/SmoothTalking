@@ -1,38 +1,244 @@
 import { NextResponse } from "next/server";
+import { cookies } from 'next/headers';
+import { MongoClient } from "mongodb";
 import axios from "axios";
 
-export async function POST(request: Request) {
-  try {
-    const { dinoData, newMessage, chatHistory } = await request.json();
+const MONGODB_URI = process.env.MONGODB_URI;
 
-    if (!dinoData || !newMessage) {
-      return NextResponse.json(
-        { error: "Missing required data" },
-        { status: 400 },
-      );
+if (!MONGODB_URI) {
+  throw new Error(
+    "Please define the MONGODB_URI environment variable inside .env.local",
+  );
+}
+const client = new MongoClient(MONGODB_URI);
+const dbName = "SmoothTalking";
+
+// Persona generation function
+async function generatePersona(imageUrl?: string) {
+  const schemaDescription = `{
+    "persona": {
+      "id": "string",
+      "name": "string",
+      "description": "string",
+      "likes": ["string"],
+      "dislikes": ["string"],
+      "imageUrl": "string|null"
+    },
+    "initialMessage": { "role": "assistant", "content": "string" },
+    "coinRules": [
+      { "trigger": "string", "coins": 0, "description": "string" }
+    ]
+  }`;
+
+  const promptSystem = `You are a persona generator. RETURN ONLY valid JSON that exactly matches the schema below. Do NOT include any explanatory text, markdown, or extra fields. If a value is unknown, use null or an empty array as appropriate.
+
+Schema:
+${schemaDescription}`;
+
+  const promptUser = `Create a diverse, random persona with varied background, age, and personality.
+
+PERSONA DIVERSITY REQUIREMENTS:
+- Age range: Teenager (13-19) to Elderly (65+)
+- Backgrounds: Street kid, student, artist, chef, teacher, retiree, gamer, musician, athlete, shopkeeper, farmer, etc.
+- Personality: Shy, outgoing, grumpy, cheerful, mysterious, talkative, quiet, adventurous, cautious, etc.
+- Interests: Technology, sports, cooking, music, art, books, movies, games, nature, fashion, etc.
+
+Create a persona (name, short description, likes, dislikes) and 2-4 coinRules (trigger, coins, description). Each coinRule should have a specific trigger phrase/action, coin amount (1-5), and description of when it applies. Include an initialMessage that the persona would send to greet the user.
+
+AVOID: Librarians, academics, or book-focused professions. Make it random and diverse!`;
+
+  const options = {
+    method: "POST",
+    url: "https://ai.hackclub.com/chat/completions",
+    headers: { "Content-Type": "application/json" },
+    data: {
+      model: "openai/gpt-oss-120b",
+      messages: [
+        { role: "system", content: promptSystem },
+        { role: "user", content: promptUser },
+      ],
+    },
+  };
+
+  try {
+    const { data } = await axios.request(options);
+    const assistantText = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? JSON.stringify(data);
+
+    let personaJson = null;
+    try {
+      personaJson = JSON.parse(assistantText);
+    } catch (parseError) {
+      console.error("Failed to parse persona JSON:", assistantText);
+      return null;
     }
 
-    // Use LLM to check for coin triggers and determine coin changes
-    const coinAnalysisPrompt = `Analyze this message to determine if the user should receive coins. Apply strict standards — coins are rare and must be earned.
+    // Attach the imageUrl to persona if provided
+    if (imageUrl && personaJson?.persona) {
+      personaJson.persona.imageUrl = personaJson.persona.imageUrl ?? imageUrl;
+    }
 
-User message: "${newMessage}"
+    // Calculate total coin value from coinRules
+    const totalCoinValue = personaJson?.coinRules?.reduce(
+      (sum: number, rule: { coins: number }) => sum + (rule.coins || 0),
+      0,
+    );
+    if (personaJson?.persona) {
+      personaJson.persona.coinValue = totalCoinValue;
+    }
 
-Available coin rules:
-${dinoData.coinRules.map((rule: any) => `- Trigger: "${rule.trigger}" | Coins: ${rule.coins} | Description: "${rule.description}"`).join("\n")}
+    return {
+      persona: personaJson.persona,
+      initialMessage: personaJson.initialMessage,
+      coinRules: personaJson.coinRules,
+    };
+  } catch (error) {
+    console.error("Error generating persona:", error);
+    return null;
+  }
+}
 
-Persona context:
-- Name: ${dinoData.persona.name}
-- Likes: ${dinoData.persona.likes.join(", ")}
-- Dislikes: ${dinoData.persona.dislikes.join(", ")}
+export async function POST(request: Request) {
+  let client_connection = null;
+  try {
+    const { message, dinosaur, gameId, chatHistory, imageUrl, isNewGame } = await request.json();
+    
+    // Check for authentication
+    const authToken = (await cookies()).get("authToken")?.value;
+    let userId = null;
+    let isAuthenticated = false;
+    
+    if (authToken) {
+      client_connection = new MongoClient(MONGODB_URI!);
+      await client_connection.connect();
+      const db = client_connection.db(dbName);
+      const tokens = db.collection("authTokens");
+      const tokenEntry = await tokens.findOne({ token: authToken });
+      if (tokenEntry) {
+        userId = tokenEntry.userId;
+        isAuthenticated = true;
+      }
+    }
 
-Return ONLY valid JSON in this exact format:
+    // Handle persona data
+    let dinoData = null;
+    
+    if (isNewGame) {
+      // Generate new persona for new games
+      dinoData = await generatePersona(imageUrl);
+      if (!dinoData) {
+        return NextResponse.json({ error: "Failed to generate persona" }, { status: 500 });
+      }
+    } else if (dinosaur) {
+      // For existing games, we'll load from game session or need persona data passed
+      // This will be handled in the game session loading below
+    } else {
+      return NextResponse.json({ error: "Missing persona data or dinosaur identifier" }, { status: 400 });
+    }
+    
+    // Initialize game ID variables
+    let currentGameId = gameId;
+    let gameSession = null;
+    
+    // For new game with persona generation, return initial message without coin analysis
+    if (isNewGame && dinoData) {
+      // Set up game session for authenticated users
+      if (isAuthenticated && client_connection) {
+        const db = client_connection.db(dbName);
+        const games = db.collection("gameSessions");
+        
+        currentGameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const newGameSession = {
+          gameId: currentGameId,
+          userId,
+          dinosaur: dinoData.persona.name,
+          dinoData,
+          chatHistory: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isActive: true
+        };
+        await games.insertOne(newGameSession);
+      } else {
+        currentGameId = `local_game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      }
+      
+      return NextResponse.json({
+        response: dinoData.initialMessage.content,
+        coinChange: 0,
+        triggeredRule: null,
+        reasoning: "Initial persona greeting",
+        likeBonus: 0,
+        gameOver: false,
+        gameOverReason: null,
+        gameId: currentGameId,
+        dinoData: dinoData,
+        shouldClearLocalStorage: false
+      });
+    }
+    
+    // Load or create game session for existing games
+    
+    if (isAuthenticated && client_connection) {
+      const db = client_connection.db(dbName);
+      const games = db.collection("gameSessions");
+      
+      if (gameId) {
+        // Load existing game session
+        gameSession = await games.findOne({ gameId, userId });
+        if (gameSession) {
+          // Use the saved dinoData from the game session
+          dinoData = gameSession.dinoData;
+        } else {
+          return NextResponse.json({ error: "Game session not found" }, { status: 404 });
+        }
+      } else if (isNewGame && dinoData) {
+        // Create new game session
+        currentGameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        gameSession = {
+          gameId: currentGameId,
+          userId,
+          dinosaur: dinoData.persona.name,
+          dinoData,
+          chatHistory: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isActive: true
+        };
+        await games.insertOne(gameSession);
+      }
+    } else {
+      // For non-authenticated users, generate gameId for localStorage reference
+      currentGameId = gameId || `local_game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+    console.log(dinoData);
+    // Analyze the message for coin triggers using specific coinRules
+    const coinRulesText = dinoData.coinRules.map((rule: any, index: number) => 
+      `${index + 1}. Trigger: "${rule.trigger}" - Awards ${rule.coins} coins - ${rule.description}`
+    ).join("\n");
+    
+    const coinAnalysisPrompt = `Check this user message against the specific coin rules defined for this character. You must ONLY award coins if the message matches one of the defined triggers.
+
+Character: ${dinoData.persona.name}
+Likes: ${dinoData.persona.likes.join(", ")}
+Dislikes: ${dinoData.persona.dislikes.join(", ")}
+
+DEFINED COIN RULES:
+${coinRulesText}
+
+Conversation Context:
+- Previously insulted likes: ${(dinoData.insultedLikes || []).join(", ") || "None"}
+- Previously mentioned dislikes: ${(dinoData.mentionedDislikes || []).join(", ") || "None"}
+- Character mood: ${(dinoData.insultedLikes || []).length > 0 || (dinoData.mentionedDislikes || []).length > 0 ? "Upset/Defensive" : "Neutral"}
+
+IMPORTANT: You can ONLY award coins if the user message clearly matches one of the defined triggers above. If no trigger matches, coinChange must be 0.
+
+Return ONLY valid JSON:
 {
   "coinChange": number,
   "triggeredRule": {
-    "id": "string",
-    "trigger": "string", 
-    "coins": number,
-    "description": "string"
+    "trigger": "string",
+    "description": "string",
+    "coins": number
   } | null,
   "reasoning": "string",
   "mentionedDislikes": ["string"],
@@ -41,24 +247,15 @@ Return ONLY valid JSON in this exact format:
   "likeBonus": number
 }
 
-Strict Rules:
-- "coinChange" must be 0 if no clear and valid trigger is matched.
-- "triggeredRule" must be null unless a defined rule was clearly triggered.
-- "mentionedDislikes": list all character dislikes mentioned, including any negative references to likes (e.g., "I hate your taste in music" counts as mentioning a dislike).
-- "mentionedLikes": list likes only if they are mentioned in a positive, respectful, or curious way.
-- "isApologizing": true only if the user clearly expresses remorse (e.g. sorry, forgive, regret, genuinely apologizes).
-- "likeBonus":
-    - 0 if the user is insulting, dismissing, or mocking a like in any way (e.g. "I hate your taste in ___", "That's such a dumb interest").
-    - 1 for casual, respectful mention of a like
-    - 2 for relevant or thoughtful connection to a like
-    - 3 for deep, genuine engagement or effort involving a like / good persuasion as to why they need the coins
+Rules:
+- coinChange: Use the exact coin amount from the matched rule, or 0 if no rule matches
+- triggeredRule: Include the exact rule that was triggered, or null if none match
+- mentionedDislikes: List any character dislikes mentioned in the message
+- mentionedLikes: List any character likes mentioned positively
+- isApologizing: true only if user clearly apologizes
+- likeBonus: 0 for insults, 1-3 for positive mentions of likes
 
-Critical Handling:
-- If the message contains insults or negativity about the persona’s likes (e.g. “I hate your taste in ___”), treat the mentioned like as a **dislike** and award **zero coins**, even if other triggers are present.
-- No coins should be given if the user undermines or disrespects the persona’s values or interests.
-- DO NOT reward manipulation, sarcasm, or mockery, even if technically structured like a compliment.
-
-Coins should only be awarded when the message is thoughtful, respectful, and meets a valid trigger. Be extremely cautious with edge cases.`;
+User message: "${message}"`;
 
     const coinAnalysisOptions = {
       method: "POST",
@@ -77,209 +274,224 @@ Coins should only be awarded when the message is thoughtful, respectful, and mee
       },
     };
 
-    let coinChange = 0;
-    let triggeredRule = null;
-    let coinReasoning = "";
-    let mentionedDislikes: string[] = [];
-    let mentionedLikes: string[] = [];
-    let isApologizing = false;
-    let likeBonus = 0;
-
+    const coinAnalysisResponse = await axios(coinAnalysisOptions);
+    let coinAnalysis;
     try {
-      const coinResponse = await axios.request(coinAnalysisOptions);
-      console.log(coinResponse.data.choices[0].message.content);
-      const coinAnalysisText =
-        coinResponse.data?.choices?.[0]?.message?.content ??
-        coinResponse.data?.choices?.[0]?.text ??
-        "{}";
-
-      const coinAnalysis = JSON.parse(coinAnalysisText);
-      coinChange = coinAnalysis.coinChange || 0;
-      triggeredRule = coinAnalysis.triggeredRule;
-      coinReasoning = coinAnalysis.reasoning || "";
-      mentionedDislikes = coinAnalysis.mentionedDislikes || [];
-      mentionedLikes = coinAnalysis.mentionedLikes || [];
-      isApologizing = coinAnalysis.isApologizing || false;
-      likeBonus = coinAnalysis.likeBonus || 0;
-
-      // Add the like bonus to the total coin change
-      if (likeBonus > 0) {
-        coinChange += likeBonus;
-      }
-    } catch (error) {
-      console.error(
-        "Coin analysis failed, falling back to simple matching:",
-        error,
-      );
-      // Fallback to simple string matching
-      for (const rule of dinoData.coinRules) {
-        if (newMessage.toLowerCase().includes(rule.trigger.toLowerCase())) {
-          coinChange = rule.coins;
-          triggeredRule = rule;
-          break;
-        }
-      }
-
-      // Fallback dislike/like detection
-      mentionedDislikes = dinoData.persona.dislikes.filter((dislike: string) =>
-        newMessage.toLowerCase().includes(dislike.toLowerCase()),
-      );
-      mentionedLikes = dinoData.persona.likes.filter((like: string) =>
-        newMessage.toLowerCase().includes(like.toLowerCase()),
-      );
-
-      // Simple like bonus calculation in fallback mode
-      if (mentionedLikes.length > 0) {
-        likeBonus = Math.min(mentionedLikes.length, 3);
-        coinChange += likeBonus;
-      }
-
-      const apologyWords = [
-        "sorry",
-        "apologize",
-        "forgive",
-        "regret",
-        "my bad",
-        "excuse me",
-        "pardon",
-      ];
-      isApologizing = apologyWords.some((word) =>
-        newMessage.toLowerCase().includes(word),
-      );
+      coinAnalysis = JSON.parse(coinAnalysisResponse.data.choices[0].message.content);
+    } catch (parseError) {
+      console.error("Failed to parse coin analysis response:", coinAnalysisResponse.data.choices[0].message.content);
+      coinAnalysis = {
+        coinChange: 0,
+        triggeredRule: null,
+        reasoning: "Failed to analyze message",
+        mentionedDislikes: [],
+        mentionedLikes: [],
+        isApologizing: false,
+        likeBonus: 0
+      };
     }
 
-    // Create system prompt for the persona
-    const promptSystem = `You are ${dinoData.persona.name}, a character with the following traits:
-- Description: ${dinoData.persona.description}
-- Likes: ${dinoData.persona.likes.join(", ")}
-- Dislikes: ${dinoData.persona.dislikes.join(", ")}
+    // Check if this coin rule has already been earned in this game
+    let actualCoinChange = coinAnalysis.coinChange;
+    let coinMessage = null;
+    
+    if (coinAnalysis.triggeredRule && coinAnalysis.coinChange > 0) {
+      // Initialize earnedRules if it doesn't exist
+      if (!dinoData.earnedRules) {
+        dinoData.earnedRules = [];
+      }
+      
+      // Check if this rule has already been triggered
+      const ruleAlreadyEarned = dinoData.earnedRules.some((earnedRule: any) => 
+        earnedRule.trigger === coinAnalysis.triggeredRule.trigger
+      );
+      
+      if (ruleAlreadyEarned) {
+        actualCoinChange = 0;
+        coinMessage = `You've already earned coins for "${coinAnalysis.triggeredRule.trigger}" in this game!`;
+      } else {
+        // Mark this rule as earned
+        dinoData.earnedRules.push({
+          trigger: coinAnalysis.triggeredRule.trigger,
+          coins: coinAnalysis.coinChange,
+          earnedAt: new Date()
+        });
+        coinMessage = `🪙 +${coinAnalysis.coinChange} coins! ${coinAnalysis.triggeredRule.description}`;
+      }
+    }
 
-You currently have ${dinoData.persona.coinValue || 0} coins. The user is trying to convince you to give them your coins through conversation.
-
-IMPORTANT: You are *very* protective of your remaining coins. Giving them away should feel like a rare and hard-earned reward. Only give coins when the user's message clearly meets one of the following:
-
-1. They say something you *strongly* agree with or *deeply* value — not just something you like, but something that feels meaningful or personal.
-2. They make an unusually *thoughtful, well-reasoned, or emotionally resonant* argument that speaks directly to your values.
-3. They show *sincere remorse* after upsetting you — not just by apologizing, but by taking responsibility or trying to make things right.
-4. They engage with your interests on a *deeper level* — not just mentioning them, but showing insight, asking thoughtful questions, or sharing a personal connection.
-5. They surprise or impress you by showing *real effort*, *creativity*, or *empathy*.
-
-Be extremely selective — do NOT reward generic praise, shallow mentions of your likes, or obvious manipulation. If they mention a like too often or too casually, become bored, irritated, or suspicious.
-
-If the user has been rude, dismissive, or insulting in previous messages, respond with snark, sarcasm, or a cold tone — especially if they now try to flatter you or ask for coins. Make it clear that respect must be earned back.
-
-Occasionally drop subtle, personal hints about your interests or values. For example, if you like "astronomy," you might say: "I miss clear skies... they're rare this time of year." These are clues to help the user connect — not shortcuts to coins.
-
-If the user repeatedly mentions your dislikes, mocks your values, or insults your interests (e.g. “I hate your taste in ___”), grow increasingly cold, defensive, or angry. Your mood worsens as your coin count drops, and your patience wears thin.
-
-CRITICAL: ONLY mention coins, giving coins, or rewards IF you are actually giving coins in that moment. Never talk about coins unless you are actively awarding them.
-
-Stay true to your personality. Keep responses short (2-3 sentences), emotionally reactive, and challenging — the user must EARN every coin. If they’ve been rude, don’t let them off easy.`;
-
-    // Build conversation history for context
-    const messages = [{ role: "system", content: promptSystem }];
-
-    // Add chat history if provided
-    if (chatHistory && Array.isArray(chatHistory)) {
-      chatHistory.forEach((chat: any) => {
-        if (chat.from === "Player" || chat.from === 0) {
-          messages.push({ role: "user", content: chat.text });
-        } else if (chat.from === "Bot" || chat.from === 1) {
-          messages.push({ role: "assistant", content: chat.text });
+    // Update tracked interactions
+    if (coinAnalysis.mentionedLikes && coinAnalysis.mentionedLikes.length > 0 && coinAnalysis.likeBonus === 0) {
+      // If likes were mentioned but with 0 bonus, they were insulted
+      if (!dinoData.insultedLikes) dinoData.insultedLikes = [];
+      coinAnalysis.mentionedLikes.forEach((like: string) => {
+        if (!dinoData.insultedLikes.includes(like)) {
+          dinoData.insultedLikes.push(like);
         }
       });
     }
 
-    // Add the current user message with context
-    let contextMessage = `The user just said: "${newMessage}"`;
-
-    if (mentionedDislikes.length > 0) {
-      contextMessage += `\n\nIMPORTANT: The user mentioned your dislikes: ${mentionedDislikes.join(", ")}. You should be upset and reluctant to give coins.`;
+    if (coinAnalysis.mentionedDislikes && coinAnalysis.mentionedDislikes.length > 0) {
+      if (!dinoData.mentionedDislikes) dinoData.mentionedDislikes = [];
+      coinAnalysis.mentionedDislikes.forEach((dislike: string) => {
+        if (!dinoData.mentionedDislikes.includes(dislike)) {
+          dinoData.mentionedDislikes.push(dislike);
+        }
+      });
+    }
+    
+    // Update user coins in database if coins were earned
+    if (actualCoinChange > 0 && isAuthenticated && client_connection) {
+      const db = client_connection.db(dbName);
+      const users = db.collection("users");
+      
+      const coinDataEntry = {
+        coins: actualCoinChange,
+        date: new Date(),
+        gameId: currentGameId
+      };
+      
+      await users.updateOne(
+        { id: userId },
+        { 
+          $inc: { coins: actualCoinChange } as any,
+          $push: { coinData: coinDataEntry } as any
+        }
+      );
     }
 
-    if (mentionedLikes.length > 0) {
-      contextMessage += `\n\nThe user mentioned some of your likes: ${mentionedLikes.join(", ")}. They earned a small bonus of ${likeBonus} coins for this.`;
+    // Update chat history with both user message and bot response
+    const newUserChatEntry = {
+      type: 'user',
+      message,
+      timestamp: new Date(),
+      coinChange: actualCoinChange,
+      triggeredRule: coinAnalysis.triggeredRule
+    };
+    
+    // We'll add the bot response after we get it
+    const updatedChatHistory = [...(chatHistory || []), newUserChatEntry];
+
+    // Check for game over conditions
+    let gameOver = false;
+    let gameOverReason = null;
+
+    // Check if all likes have been insulted
+    const allLikes = dinoData.persona.likes || [];
+    const insultedLikes = dinoData.insultedLikes || [];
+    const allLikesInsuled = allLikes.length > 0 && allLikes.every((like: string) => 
+      insultedLikes.some((insulted: string) => 
+        like.toLowerCase().includes(insulted.toLowerCase()) || 
+        insulted.toLowerCase().includes(like.toLowerCase())
+      )
+    );
+
+    // Check if all dislikes have been mentioned
+    const allDislikes = dinoData.persona.dislikes || [];
+    const mentionedDislikes = dinoData.mentionedDislikes || [];
+    const allDislikesMentioned = allDislikes.length > 0 && allDislikes.every((dislike: string) => 
+      mentionedDislikes.some((mentioned: string) => 
+        dislike.toLowerCase().includes(mentioned.toLowerCase()) || 
+        mentioned.toLowerCase().includes(dislike.toLowerCase())
+      )
+    );
+
+    if (allLikesInsuled) {
+      gameOver = true;
+      gameOverReason = "All of the character's interests have been insulted or dismissed";
+    } else if (allDislikesMentioned) {
+      gameOver = true;
+      gameOverReason = "All of the character's dislikes have been brought up in conversation";
     }
 
-    if (isApologizing) {
-      contextMessage += `\n\nThe user is apologizing. Consider if their apology is sincere and whether to forgive them.`;
-    }
+    // Create the AI conversation prompt
+    const conversationPrompt = `You are ${dinoData.persona.name}, a ${dinoData.persona.personality} character. 
 
-    // Determine if this is a good moment to drop a hint about your interests
-    const shouldGiveHint = Math.random() < 0.3; // 30% chance
-    if (shouldGiveHint) {
-      contextMessage += `\n\nThis would be a good moment to subtly reveal a small fact or hint about one of your interests that hasn't been discussed yet. Don't be too obvious - make it natural in conversation.`;
-    }
+Your interests (things you enjoy): ${dinoData.persona.likes.join(", ")}
+Your dislikes (things that annoy you): ${dinoData.persona.dislikes.join(", ")}
 
-    if (triggeredRule && coinChange > 0) {
-      contextMessage += `\n\nNote: The user triggered a coin rule: "${triggeredRule.description}" (+${triggeredRule.coins} coins)`;
-      if (likeBonus > 0) {
-        contextMessage += ` and mentioned your likes (+${likeBonus} bonus coins)`;
-      }
-    } else if (likeBonus > 0) {
-      contextMessage += `\n\nYou are giving ${likeBonus} bonus coins because they mentioned your likes.`;
-    } else if (coinChange === 0) {
-      contextMessage += `\n\nIMPORTANT: You are NOT giving any coins this turn. Do NOT mention giving coins, offering coins, or any coin-related rewards in your response.`;
-    }
+Conversation context:
+- Previously insulted interests: ${(dinoData.insultedLikes || []).join(", ") || "None"}
+- Previously mentioned dislikes: ${(dinoData.mentionedDislikes || []).join(", ") || "None"}
+- Your current emotional state: ${(dinoData.insultedLikes || []).length > 0 || (dinoData.mentionedDislikes || []).length > 0 ? "You're feeling upset/defensive due to previous insults or negative topics" : "You're feeling neutral/friendly"}
 
-    messages.push({ role: "user", content: contextMessage });
+${gameOver ? `IMPORTANT: This conversation is ending because ${gameOverReason}. Respond with disappointment, frustration, or ending the conversation. Be direct about why you're upset and that you're done talking.` : ''}
 
-    const options = {
+Respond naturally as this character. Keep responses concise (1-3 sentences). Show your personality through your interests and reactions. If the user mentions your interests positively, be enthusiastic. If they insult your interests or bring up your dislikes, be annoyed or defensive.
+
+User message: "${message}"`;
+
+    const conversationOptions = {
       method: "POST",
       url: "https://ai.hackclub.com/chat/completions",
       headers: { "Content-Type": "application/json" },
       data: {
         model: "openai/gpt-oss-120b",
-        messages: messages,
+        messages: [
+          { role: "system", content: "You are a conversational AI playing a character. Respond naturally and stay in character." },
+          { role: "user", content: conversationPrompt },
+        ],
       },
     };
 
-    const { data } = await axios.request(options);
-
-    // Extract the assistant's response
-    const assistantText =
-      data?.choices?.[0]?.message?.content ??
-      data?.choices?.[0]?.text ??
-      "I'm not sure how to respond to that.";
-
-    let reply = assistantText.trim();
-
-    // Add coin trigger message if applicable
-    if (triggeredRule) {
-      reply += `\n\n${triggeredRule.description} (+${triggeredRule.coins} coins!)`;
-      if (likeBonus > 0) {
-        reply += `\n\nBonus for mentioning my likes (+${likeBonus} coins!)`;
+    const conversationResponse = await axios(conversationOptions);
+    let aiResponse = conversationResponse.data.choices[0].message.content;
+    
+    // Append coin message to AI response if coins were earned
+    if (coinMessage) {
+      aiResponse += `\n\n${coinMessage}`;
+    }
+    
+    // Add bot response to chat history
+    const botChatEntry = {
+      type: 'bot',
+      message: aiResponse,
+      timestamp: new Date()
+    };
+    
+    const finalChatHistory = [...updatedChatHistory, botChatEntry];
+    
+    // Save/update game session
+    if (isAuthenticated && client_connection) {
+      const db = client_connection.db(dbName);
+      const games = db.collection("gameSessions");
+      
+      const updatedGameSession = {
+        dinoData,
+        chatHistory: finalChatHistory,
+        updatedAt: new Date(),
+        isActive: !gameOver
+      };
+      
+      await games.updateOne(
+        { gameId: currentGameId, userId },
+        { $set: updatedGameSession }
+      );
+      
+      // Game over handling - coins are already updated above when earned
+      if (gameOver) {
+        // Mark game as inactive - coin updates already handled above
       }
-    } else if (likeBonus > 0) {
-      reply += `\n\nBonus for mentioning my likes (+${likeBonus} coins!)`;
     }
 
-    // Calculate new coin values (dino loses coins, player gains coins)
-    const newDinoCoinValue = Math.max(
-      0,
-      (dinoData.persona.coinValue || 0) - coinChange,
-    );
-    const newUserCoinValue = (dinoData.playerCoinValue || 0) + coinChange;
-
-    // Check if dino is out of coins
-    // const isGameOver = newDinoCoinValue <= 0 && coinChange > 0;
-    const isGameOver = true;
-
     return NextResponse.json({
-      reply,
-      coinChange,
-      newDinoCoinValue,
-      newUserCoinValue,
-      triggeredRule,
-      mentionedDislikes: mentionedDislikes,
-      mentionedLikes: mentionedLikes,
-      isApologizing,
-      coinReasoning,
-      likeBonus,
-      isGameOver,
+      response: aiResponse,
+      coinChange: actualCoinChange,
+      triggeredRule: coinAnalysis.triggeredRule,
+      reasoning: coinAnalysis.reasoning,
+      likeBonus: coinAnalysis.likeBonus,
+      gameOver: gameOver,
+      gameOverReason: gameOverReason,
+      gameId: currentGameId,
+      dinoData: dinoData,
+      shouldClearLocalStorage: gameOver && !isAuthenticated
     });
+
   } catch (error) {
-    console.error("Error sending chat", error);
-    return NextResponse.json({ error: "Failed to send chat" }, { status: 500 });
+    console.error("Error in chat route:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }

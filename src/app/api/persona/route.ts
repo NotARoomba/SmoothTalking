@@ -8,7 +8,6 @@ export async function POST(request: Request) {
   // JSON schema we want the model to return (the model will produce JSON that matches this)
   const schemaDescription = `{
     "persona": {
-      "id": "string",
       "name": "string",
       "description": "string",
       "likes": ["string"],
@@ -17,7 +16,7 @@ export async function POST(request: Request) {
     },
     "initialMessage": { "role": "assistant", "content": "string" },
     "coinRules": [
-      { "id": "string", "trigger": "string", "coins": 0, "description": "string" }
+      { "trigger": "string", "coins": 0, "description": "string" }
     ]
   }`;
 
@@ -34,7 +33,7 @@ PERSONA DIVERSITY REQUIREMENTS:
 - Personality: Shy, outgoing, grumpy, cheerful, mysterious, talkative, quiet, adventurous, cautious, etc.
 - Interests: Technology, sports, cooking, music, art, books, movies, games, nature, fashion, etc.
 
-Create a persona (name, short description, likes, dislikes) and 2-4 coinRules (id, trigger, coins, description). Include an initialMessage that the persona would send to greet the user.
+Create a persona (name, short description, likes, dislikes) and 2-4 coinRules (trigger, coins, description). Each coinRule should have a specific trigger phrase/action, coin amount (1-5), and description of when it applies. Include an initialMessage that the persona would send to greet the user.
 
 AVOID: Librarians, academics, or book-focused professions. Make it random and diverse!
 
@@ -92,7 +91,7 @@ AVOID: Librarians, academics, or book-focused professions. Make it random and di
       personaJson.persona.coinValue = totalCoinValue;
     }
 
-    console.log(personaJson.persona);
+    // console.log(personaJson.persona);
 
     // Return the structured JSON schema to the client
     return NextResponse.json(

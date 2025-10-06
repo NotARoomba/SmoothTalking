@@ -57,6 +57,8 @@ export async function POST(request: Request) {
       avatar: "",
       username: email.split("@")[0],
       email,
+      coins: 0,
+      coinData: [],
       password: hashedPassword,
       dateJoined: new Date(),
     };
@@ -89,7 +91,5 @@ export async function POST(request: Request) {
       { error: "Internal Server Error" },
       { status: 500 },
     );
-  } finally {
-    await client.close();
   }
 }

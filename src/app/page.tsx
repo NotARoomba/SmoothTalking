@@ -8,6 +8,32 @@ export default function Home() {
   const [dinoImage, setDinoImage] = useState<string | null>(null);
   const [dinoImages, setDinoImages] = useState<string[]>([]);
   const [isVisible, setIsVisible] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Check if user is logged in
+  useEffect(() => {
+    const checkLoginStatus = async () => {
+      try {
+        const response = await fetch("/api/user", {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (response.ok) {
+          setLoggedIn(true);
+        } else {
+          setLoggedIn(false);
+        }
+      } catch (error) {
+        console.error("Error checking login status:", error);
+        setLoggedIn(false);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    checkLoginStatus();
+  }, []);
 
   useEffect(() => {
     // Fetch the dinosaur images
@@ -87,10 +113,35 @@ export default function Home() {
       </p>
       <Link
         href="/play"
-        className="text-xl font-semibold px-8 py-2 rounded-xl hover:opacity-80 transition-opacity duration-300 bg-gunmetal text-almond"
+        className="text-xl font-semibold w-48 text-center px-8 py-2 rounded-xl hover:opacity-80 transition-opacity duration-300 bg-gunmetal text-almond"
       >
         start talking
       </Link>
+      <Link
+        href="/leaderboard"
+        className="text-xl font-semibold w-48 text-center px-8 py-2 rounded-xl hover:opacity-80 transition-opacity duration-300 bg-gunmetal text-almond"
+      >
+        leaderboard
+      </Link>
+      {loggedIn ? (
+        <Link
+          href="/profile"
+          className={`text-xl font-semibold w-48 text-center px-8 py-2 rounded-xl hover:opacity-80 transition-opacity duration-300 bg-gunmetal text-almond block ${
+            authLoading ? "opacity-0" : "opacity-100"
+          }`}
+        >
+          profile
+        </Link>
+      ) : (
+        <Link
+          href="/auth"
+          className={`text-xl font-semibold w-48 text-center px-8 py-2 rounded-xl hover:opacity-80 transition-opacity duration-300 bg-gunmetal text-almond block ${
+            authLoading ? "opacity-0" : "opacity-100"
+          }`}
+        >
+          login / sign up
+        </Link>
+      )}
     </div>
   );
 }
